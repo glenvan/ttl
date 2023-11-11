@@ -1,3 +1,3 @@
-module github.com/jftuga/TtlMap
+module github.com/glenvan/ttl
 
-go 1.21.3
+go 1.21

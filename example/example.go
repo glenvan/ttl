@@ -1,18 +1,10 @@
-/*
-example.go
--John Taylor
-2023-10-21
-
-This is an example on how to use the TtlMap package.  Notice the variety of data types used.
-*/
-
 package main
 
 import (
 	"fmt"
 	"time"
 
-	"github.com/jftuga/TtlMap"
+	"github.com/glenvan/ttl"
 )
 
 type User struct {
@@ -25,39 +17,29 @@ func main() {
 	startSize := 3                                  // initial number of items in map
 	pruneInterval := time.Duration(time.Second * 1) // search for expired items every 'pruneInterval' seconds
 	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	t := TtlMap.New[string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+	t := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
 	defer t.Close()
 
-	// populate the TtlMap
-	t.Put("string", "a b c")
-	t.Put("int", 3)
-	t.Put("float", 4.4)
-	t.Put("int_array", []int{1, 2, 3})
-	t.Put("bool", false)
-	t.Put("rune", '{')
-	t.Put("byte", 0x7b)
-	var u = uint64(123456789)
-	t.Put("uint64", u)
-	var c = complex(3.14, -4.321)
-	t.Put("complex", c)
-
-	allUsers := []User{{Name: "abc", Level: 123}, {Name: "def", Level: 456}}
-	t.Put("all_users", allUsers)
+	// populate the ttl.Map
+	t.Store("string", "a b c")
+	t.Store("int", "3")
+	t.Store("float", "4.4")
+	t.Store("int_array", "1, 2, 3")
+	t.Store("bool", "false")
+	t.Store("rune", "{")
+	t.Store("byte", "0x7b")
+	t.Store("uint64", "123456789")
 
 	fmt.Println()
-	fmt.Println("TtlMap length:", t.Len())
+	fmt.Println("ttl.Map length:", t.Length())
 
-	// extract entry from struct array
-	a := t.Get("all_users").([]User)
-	fmt.Printf("second user: %v, %v\n", a[1].Name, a[1].Level)
-
-	// display all items in TtlMap
+	// display all items in ttl.Map
 	fmt.Println()
 	fmt.Println("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv")
-	all := t.All()
-	for k, v := range all {
-		fmt.Printf("[%9s] %v\n", k, v.Value)
-	}
+	t.Range(func(key string, value string) bool {
+		fmt.Printf("[%9s] %v\n", key, value)
+		return true
+	})
 	fmt.Println("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
 	fmt.Println()
 
@@ -66,11 +48,11 @@ func main() {
 	dontExpireKey := "float"
 	go func() {
 		for range time.Tick(time.Second) {
-			t.Get(dontExpireKey)
+			t.Load(dontExpireKey)
 		}
 	}()
 
-	// TtlMap has an expiration time, wait until this amount of time passes
+	// ttl.Map has an expiration time, wait until this amount of time passes
 	sleepTime := maxTTL + pruneInterval
 	fmt.Println()
 	fmt.Printf("Sleeping %v seconds, items should be removed after this time, except for the '%v' key\n", sleepTime, dontExpireKey)
@@ -78,43 +60,47 @@ func main() {
 	time.Sleep(sleepTime)
 
 	// these items have expired and therefore should be nil, except for 'dontExpireKey'
-	fmt.Printf("[%9s] %v\n", "string", t.Get("string"))
-	fmt.Printf("[%9s] %v\n", "int", t.Get("int"))
-	fmt.Printf("[%9s] %v\n", "float", t.Get("float"))
-	fmt.Printf("[%9s] %v\n", "int_array", t.Get("int_array"))
-	fmt.Printf("[%9s] %v\n", "bool", t.Get("bool"))
-	fmt.Printf("[%9s] %v\n", "rune", t.Get("rune"))
-	fmt.Printf("[%9s] %v\n", "byte", t.Get("byte"))
-	fmt.Printf("[%9s] %v\n", "uint64", t.Get("uint64"))
-	fmt.Printf("[%9s] %v\n", "complex", t.Get("complex"))
-	fmt.Printf("[%9s] %v\n", "all_users", t.Get("all_users"))
+	v, ok := t.Load("string")
+	fmt.Printf("[%9s] %v (%t)\n", "string", v, ok)
+	v, ok = t.Load("int")
+	fmt.Printf("[%9s] %v (%t)\n", "int", v, ok)
+	v, ok = t.Load("float")
+	fmt.Printf("[%9s] %v (%t)\n", "float", v, ok)
+	v, ok = t.Load("int_array")
+	fmt.Printf("[%9s] %v (%t)\n", "int_array", v, ok)
+	v, ok = t.Load("bool")
+	fmt.Printf("[%9s] %v (%t)\n", "bool", v, ok)
+	v, ok = t.Load("rune")
+	fmt.Printf("[%9s] %v (%t)\n", "rune", v, ok)
+	v, ok = t.Load("byte")
+	fmt.Printf("[%9s] %v (%t)\n", "byte", v, ok)
+	v, ok = t.Load("uint64")
+	fmt.Printf("[%9s] %v (%t)\n", "uint64", v, ok)
 
-	// sanity check, this comparison should be true
+	// sanity check, this key should exist
 	fmt.Println()
-	if t.Get("int") == nil {
-		fmt.Println("[int] is nil")
+	if v, ok := t.Load("int"); ok {
+		fmt.Printf("[int] is %s", v)
 	}
-	fmt.Println("TtlMap length:", t.Len(), " (should equal 1)")
+	fmt.Println("ttl.Map length:", t.Length(), " (should equal 1)")
 	fmt.Println()
 
 	fmt.Println()
-	fmt.Printf("Manually deleting '%v' key; should be successful\n", dontExpireKey)
-	success := t.Delete(dontExpireKey)
-	fmt.Printf("    successful? %v\n", success)
-	fmt.Printf("Manually deleting '%v' key again; should NOT be successful this time\n", dontExpireKey)
-	success = t.Delete(dontExpireKey)
-	fmt.Printf("    successful? %v\n", success)
-	fmt.Println("TtlMap length:", t.Len(), " (should equal 0)")
+	fmt.Printf("Manually deleting '%v' key; should be successful\n", "int")
+	t.Delete("int")
+	_, ok = t.Load("int")
+	fmt.Printf("    successful? %t\n", !ok)
+	fmt.Println("ttl.Map length:", t.Length(), " (should equal 0)")
 	fmt.Println()
 
 	fmt.Println("Adding 2 items and then running Clear()")
-	t.Put("string", "a b c")
-	t.Put("int", 3)
-	fmt.Println("TtlMap length:", t.Len())
+	t.Store("string", "a b c")
+	t.Store("int", "3")
+	fmt.Println("ttl.Map length:", t.Length())
 
 	fmt.Println()
 	fmt.Println("Running Clear()")
 	t.Clear()
-	fmt.Println("TtlMap length:", t.Len())
+	fmt.Println("ttl.Map length:", t.Length())
 	fmt.Println()
 }

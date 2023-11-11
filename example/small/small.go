@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jftuga/TtlMap"
+	"github.com/glenvan/ttl"
 )
 
 func main() {
@@ -15,25 +15,28 @@ func main() {
 
 	// any comparable data type such as int, uint64, pointers and struct types (if all field types are comparable)
 	// can be used as the key type, not just string
-	t := TtlMap.New[string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+	t := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
 	defer t.Close()
 
 	// populate the TtlMap
-	t.Put("myString", "a b c")
-	t.Put("int_array", []int{1, 2, 3})
-	fmt.Println("TtlMap length:", t.Len())
+	t.Store("myString", "a b c")
+	t.Store("int_array", "1, 2, 3")
+	fmt.Println("TtlMap length:", t.Length())
 
 	// display all items in TtlMap
-	all := t.All()
-	for k, v := range all {
-		fmt.Printf("[%9s] %v\n", k, v.Value)
-	}
+	t.Range(func(key string, value string) bool {
+		fmt.Printf("[%9s] %v\n", key, value)
+		return true
+	})
+
 	fmt.Println()
 
 	sleepTime := maxTTL + pruneInterval
 	fmt.Printf("Sleeping %v seconds, items should be 'nil' after this time\n", sleepTime)
 	time.Sleep(sleepTime)
-	fmt.Printf("[%9s] %v\n", "myString", t.Get("myString"))
-	fmt.Printf("[%9s] %v\n", "int_array", t.Get("int_array"))
-	fmt.Println("TtlMap length:", t.Len())
+	v, ok := t.Load("myString")
+	fmt.Printf("[%9s] %v (exists: %t)\n", "myString", v, ok)
+	v, ok = t.Load("int_array")
+	fmt.Printf("[%9s] %v (exists: %t)\n", "int_array", v, ok)
+	fmt.Println("TtlMap length:", t.Length())
 }
