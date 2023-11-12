@@ -43,6 +43,28 @@ few enhancements and creature-comforts:
 
 `ttl` requires Go v1.21.
 
+## Installation
+
+To use this module in your project, run:
+
+```bash
+go get -u github.com/glenvan/ttl/v2
+```
+
+... and import the `ttl` package into your Go code using:
+
+```go
+package main
+
+import (
+	"github.com/glenvan/ttl/v2"
+)
+
+func example() {
+	tm := ttl.NewMap(...)
+}
+```
+
 ## License
 
 This project is licensed under the terms of [the MIT License](./LICENSE). It derives from
@@ -62,7 +84,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/glenvan/ttl"
+	"github.com/glenvan/ttl/v2"
 )
 
 func main() {

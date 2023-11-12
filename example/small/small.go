@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/glenvan/ttl"
+	"github.com/glenvan/ttl/v2"
 )
 
 func main() {
