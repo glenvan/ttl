@@ -2,7 +2,10 @@ module github.com/glenvan/ttl
 
 go 1.21
 
-require github.com/stretchr/testify v1.8.4
+require (
+	github.com/fortytw2/leaktest v1.3.0
+	github.com/stretchr/testify v1.8.4
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
