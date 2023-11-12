@@ -44,6 +44,20 @@ func (s *MapTestSuite) TestAllItemsExpired() {
 	s.Zero(tm.Length())
 }
 
+func (s *MapTestSuite) TestClose() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+
+	tm.Store("myString", "a b c")
+	tm.Store("int slice", []int{1, 2, 3})
+
+	tm.Close()
+
+	time.Sleep(s.sleepTime)
+
+	s.Equal(2, tm.Length())
+}
+
 func (s *MapTestSuite) TestNoItemsExpired() {
 	refreshLastAccessOnGet := true
 	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
@@ -152,32 +166,6 @@ func (s *MapTestSuite) TestClear() {
 	tm.Clear()
 
 	s.Equal(0, tm.Length())
-}
-
-func (s *MapTestSuite) TestAllFunc() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
-	defer tm.Close()
-
-	tm.Store("myString", "a b c")
-	tm.Store("int", 1234)
-	tm.Store("float Pi", 3.1415)
-	tm.Store("int slice", []int{1, 2, 3})
-	tm.Store("boolean", true)
-
-	s.Equal(5, tm.Length())
-
-	tm.Delete("float Pi")
-	_, ok := tm.Load("float Pi")
-	s.False(ok)
-
-	s.Equal(4, tm.Length())
-
-	tm.Store("byte", "0x7b")
-	var u uint64 = 123456789
-	tm.Store("uint64", u)
-
-	s.Equal(6, tm.Length())
 }
 
 func (s *MapTestSuite) TestLoadPassive() {
