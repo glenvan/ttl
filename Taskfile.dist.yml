@@ -16,12 +16,15 @@ tasks:
 
   test:
     cmds:
-      - go test ./...
+      - go test {{.FLAGS}} ./...
+    vars:
+      FLAGS: '{{default "" .FLAGS}}'
     silent: true
 
   test-verbose:
     cmds:
-      - go test -v ./...
+      - task: test
+        vars: { FLAGS: '-v' }
     silent: true
 
   tidy:
