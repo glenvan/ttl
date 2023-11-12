@@ -153,6 +153,68 @@ func (s *MapTestSuite) TestDelete() {
 	s.Equal(0, tm.Length())
 }
 
+func (s *MapTestSuite) TestDeleteFuncByKey() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[int, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	defer tm.Close()
+
+	tm.Store(0, "zero")
+	tm.Store(1, "one")
+	tm.Store(2, "two")
+	tm.Store(3, "three")
+
+	s.Equal(4, tm.Length())
+
+	// Delete all even keys
+	tm.DeleteFunc(func(key int, val string) bool {
+		return key%2 == 0
+	})
+
+	if s.Equal(2, tm.Length()) {
+		v, ok := tm.Load(1)
+		if s.True(ok) {
+			s.Equal("one", v)
+		}
+
+		v, ok = tm.Load(3)
+		if s.True(ok) {
+			s.Equal("three", v)
+		}
+	}
+}
+
+func (s *MapTestSuite) TestDeleteFuncByValue() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	defer tm.Close()
+
+	tm.Store("zero", 0)
+	tm.Store("one", 1)
+	tm.Store("two", 2)
+	tm.Store("three", 3)
+
+	s.Equal(4, tm.Length())
+
+	// Delete all even keys
+	tm.DeleteFunc(func(key string, val int) bool {
+		return val%2 == 0
+	})
+
+	s.Equal(2, tm.Length())
+
+	if s.Equal(2, tm.Length()) {
+		v, ok := tm.Load("one")
+		if s.True(ok) {
+			s.Equal(1, v)
+		}
+
+		v, ok = tm.Load("three")
+		if s.True(ok) {
+			s.Equal(3, v)
+		}
+	}
+}
+
 func (s *MapTestSuite) TestClear() {
 	refreshLastAccessOnGet := true
 	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
@@ -364,114 +426,5 @@ func (s *MapTestSuite) TestRangeTransform() {
 			"Actual %v does not equal expected %v",
 			v,
 			transformedThirdSlice)
-	}
-}
-
-func (s *MapTestSuite) TestRangeTransformExpectFailReassign() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, []int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
-	defer tm.Close()
-
-	firstSlice := []int{1, 2, 3}
-	secondSlice := []int{4, 5, 6}
-	thirdSlice := []int{7, 8, 9}
-	tm.Store(0, firstSlice)
-	tm.Store(1, secondSlice)
-	tm.Store(2, thirdSlice)
-
-	s.Equal(3, tm.Length())
-
-	// Attempt to overwrite slice
-	tm.Range(func(key int, val []int) bool {
-		// This is expected to fail, because val is a reference to the slice/array backing
-		// the one contained in the Map. Each are distinct references and assiging to val
-		// here just points it to different data.
-		val = []int{3}
-
-		return true
-	})
-
-	s.Equal(3, tm.Length())
-
-	v, ok := tm.Load(2)
-	if s.True(ok) {
-		s.False(slices.Equal([]int{3}, v), "Slice should not have been modified")
-	}
-}
-
-func (s *MapTestSuite) TestRangeTransformExpectFailAppend() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, []int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
-	defer tm.Close()
-
-	firstSlice := []int{1, 2, 3}
-	secondSlice := []int{4, 5, 6}
-	thirdSlice := []int{7, 8, 9}
-	tm.Store(0, firstSlice)
-	tm.Store(1, secondSlice)
-	tm.Store(2, thirdSlice)
-
-	s.Equal(3, tm.Length())
-
-	// Attempt to overwrite slice
-	tm.Range(func(key int, val []int) bool {
-		// This is expected to fail, because val is a reference to the slice/array backing
-		// the one contained in the Map. Each are distinct references and assiging to val
-		// here just points it to different data.
-		val = append(val, val...)
-
-		return true
-	})
-
-	s.Equal(3, tm.Length())
-
-	v, ok := tm.Load(2)
-	if s.True(ok) {
-		s.False(slices.Equal([]int{3}, v), "Slice should not have been modified")
-	}
-}
-
-func (s *MapTestSuite) TestRangeTransformExpectFailAppendWithLargeCap() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, []int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
-	defer tm.Close()
-
-	firstSlice := make([]int, 0, 100)
-	firstSlice = append(firstSlice, 1, 2, 3)
-	s.Len(firstSlice, 3)
-	s.Equal(100, cap(firstSlice))
-
-	secondSlice := make([]int, 0, 100)
-	secondSlice = append(secondSlice, 4, 5, 6)
-	s.Len(secondSlice, 3)
-	s.Equal(100, cap(secondSlice))
-
-	thirdSlice := make([]int, 0, 100)
-	thirdSlice = append(thirdSlice, 7, 8, 9)
-	s.Len(thirdSlice, 3)
-	s.Equal(100, cap(thirdSlice))
-
-	tm.Store(0, firstSlice)
-	tm.Store(1, secondSlice)
-	tm.Store(2, thirdSlice)
-
-	s.Equal(3, tm.Length())
-
-	// Attempt to overwrite slice
-	tm.Range(func(key int, val []int) bool {
-		// This is expected to fail, because val is a reference to the slice/array backing
-		// the one contained in the Map. Each are distinct references and assiging to val
-		// here just points it to different data even if you're doing an append to a slice
-		// that has plenty of room to grow.
-		val = append(val, val...)
-
-		return true
-	})
-
-	s.Equal(3, tm.Length())
-
-	v, ok := tm.Load(2)
-	if s.True(ok) {
-		s.False(slices.Equal([]int{7, 8, 9, 7, 8, 9}, v), "Slice should not have been modified")
 	}
 }

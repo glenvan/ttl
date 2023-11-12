@@ -7,7 +7,7 @@ output: 'prefixed'
 
 vars:
   PKG_NAME: github.com/glenvan/ttl
-  PKG_VERSION: v0.1.3
+  PKG_VERSION: v0.2.0
 
 tasks:
   default:
@@ -28,6 +28,13 @@ tasks:
         vars: { FLAGS: '-v' }
     silent: true
 
+  push:
+    interactive: true
+    deps: [test]
+    cmds:
+      - git push origin HEAD
+    silent: true
+
   tidy:
     run: once
     cmds:
@@ -35,6 +42,7 @@ tasks:
     silent: true
 
   pull-tags:
+    interactive: true
     internal: true
     run: once
     cmds:
@@ -42,6 +50,7 @@ tasks:
     silent: true
 
   tag:
+    interactive: true
     deps: [pull-tags]
     run: once
     cmds:

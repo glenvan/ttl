@@ -55,6 +55,8 @@ func ExampleMap() {
 
 func ExampleMap_Load() {
 	tm := ttl.NewMap[string, string](30*time.Second, 0, 2*time.Second, true)
+	defer tm.Close()
+
 	tm.Store("hello", "world")
 
 	value, ok := tm.Load("hello")
@@ -67,6 +69,8 @@ func ExampleMap_Load() {
 
 func ExampleMap_Range() {
 	tm := ttl.NewMap[string, string](30*time.Second, 0, 2*time.Second, true)
+	defer tm.Close()
+
 	tm.Store("hello", "world")
 	tm.Store("goodbye", "universe")
 
@@ -91,4 +95,25 @@ func ExampleMap_Range() {
 	// Output:
 	// Length before: 2
 	// Length after: 1
+}
+
+func ExampleMap_DeleteFunc() {
+	tm := ttl.NewMap[string, int](30*time.Second, 0, 2*time.Second, true)
+	defer tm.Close()
+
+	tm.Store("zero", 0)
+	tm.Store("one", 1)
+	tm.Store("two", 2)
+
+	// Delete all even keys
+	tm.DeleteFunc(func(key string, val int) bool {
+		return val%2 == 0
+	})
+
+	tm.Range(func(key string, val int) bool {
+		fmt.Printf("%s: %d\n", key, val)
+		return true
+	})
+	// Output:
+	// one: 1
 }

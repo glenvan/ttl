@@ -37,6 +37,10 @@ few enhancements and creature-comforts:
     - Safe for concurrent access
 - Replace internal `time.Tick()` with a `time.Ticker` to prevent leakage
 
+## Requirements
+
+`ttl` requires Go v1.21.
+
 ## License
 
 This project is licensed under the terms of [the MIT License](./LICENSE). It derives from

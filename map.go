@@ -1,6 +1,7 @@
 package ttl
 
 import (
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,13 +64,9 @@ func NewMap[K comparable, V any](
 			case now := <-ticker.C:
 				currentTime := now.UnixNano()
 				m.mtx.Lock()
-				for k, item := range m.m {
-					if currentTime-item.lastAccess.Load() < int64(maxTTL) {
-						continue
-					}
-
-					delete(m.m, k)
-				}
+				maps.DeleteFunc(m.m, func(key K, item *mapItem[V]) bool {
+					return currentTime-item.lastAccess.Load() >= int64(maxTTL)
+				})
 				m.mtx.Unlock()
 			}
 		}
@@ -143,6 +140,19 @@ func (m *Map[K, V]) Delete(key K) {
 	delete(m.m, key)
 }
 
+// DeleteFunc deletes any key/value pairs from the [Map] for which del returns true. DeleteFunc is
+// safe for concurrent use.
+func (m *Map[K, V]) DeleteFunc(del func(key K, value V) bool) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	for key, item := range m.m {
+		if del(key, item.Value) {
+			delete(m.m, key)
+		}
+	}
+}
+
 // Clear will remove all key/value pairs from the [Map]. Clear is safe for concurrent use.
 func (m *Map[K, V]) Clear() {
 	m.mtx.Lock()
@@ -162,12 +172,14 @@ func (m *Map[K, V]) Clear() {
 //
 // If you need to perform operations on the original [Map], do so in a new goroutine from within
 // the range func – effectively deferring the operation until the Range completes.
+//
+// If you just need to delete items with a certain key or value, use [Map.DeleteFunc] instead.
 func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	for k, item := range m.m {
-		if !f(k, item.Value) {
+	for key, item := range m.m {
+		if !f(key, item.Value) {
 			break
 		}
 	}
