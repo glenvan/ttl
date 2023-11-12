@@ -7,7 +7,7 @@ output: 'prefixed'
 
 vars:
   PKG_NAME: github.com/glenvan/ttl
-  PKG_VERSION: v0.2.0
+  PKG_VERSION: v1.0.0
 
 tasks:
   default:

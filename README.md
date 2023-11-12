@@ -3,10 +3,6 @@
 ![Build and Test](https://github.com/glenvan/ttl/actions/workflows/go.yml/badge.svg)
 [![Go Reference](https://pkg.go.dev/badge/github.com/glenvan/ttl.svg)](https://pkg.go.dev/github.com/glenvan/ttl)
 
-## Status
-
-Pre-release, use with caution.
-
 ## Introduction
 
 `ttl` is golang package that implements *time-to-live* container types such that after a given
@@ -23,6 +19,10 @@ few enhancements and creature-comforts:
   - Meaning that both key and value are determined by Generics
   - Using `any` or `interface{}` as the value type will effectively emulate the original source
     package
+- `Map` accepts a [`context.Context`](https://pkg.go.dev/context@go1.21.4)
+  - `Map` will automatically stop pruning expired items (equivalent to `Map.Close()`) if the
+    context cancels to prevent goroutine leaks
+  - Great for services
 - The package name is simply `ttl`, in case other TTL-enabled types seem like a good idea
   - For example: a slice implementation
 - The syntax is a little more idiomatic
@@ -56,6 +56,7 @@ Small example:
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -66,11 +67,16 @@ func main() {
 	maxTTL := 300 * time.Millisecond        // a key's time to live
 	startSize := 3                          // initial number of items in map
 	pruneInterval := 100 * time.Millisecond // prune expired items each time pruneInterval elapses
-	refreshLastAccessOnGet := true          // update item's 'lastAccessTime' on ttl.Map.Load()
+	refreshOnStore := true                  // update item's 'lastAccessTime' on ttl.Map.Load()
 
 	// Any comparable data type such as int, uint64, pointers and struct types (if all field
 	// types are comparable) can be used as the key type
-	t := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+	t := ttl.NewMap[string, string](
+		context.Background(),
+		maxTTL,
+		startSize,
+		pruneInterval,
+		refreshOnStore)
 	defer t.Close()
 
 	// Populate the ttl.Map

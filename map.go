@@ -1,6 +1,7 @@
 package ttl
 
 import (
+	"context"
 	"maps"
 	"sync"
 	"sync/atomic"
@@ -31,12 +32,20 @@ type Map[K comparable, V any] struct {
 	mtx     sync.RWMutex
 	refresh bool
 	stop    chan bool
+	closed  atomic.Bool
 }
 
 // NewMap returns a new [Map] with items expiring according to the maxTTL specified if
 // they have not been accessed within that duration. Access refresh can be overridden so that
 // items expire after the TTL whether they have been accessed or not.
+//
+// NewMap accepts a context. If the context is cancelled, the pruning process will automatically
+// stop whether you've called [Map.Close] or not. It's safe to use either approach.
+//
+// context.Background() is perfectly acceptable as the default context, however you should
+// [Map.Close] the Map yourself in that case.
 func NewMap[K comparable, V any](
+	ctx context.Context,
 	maxTTL time.Duration,
 	length int,
 	pruneInterval time.Duration,
@@ -52,13 +61,15 @@ func NewMap[K comparable, V any](
 		stop:    make(chan bool),
 	}
 
-	ticker := time.NewTicker(pruneInterval)
-
 	go func() {
+		ticker := time.NewTicker(pruneInterval)
 		defer ticker.Stop()
 
 		for {
 			select {
+			case <-ctx.Done():
+				m.Close()
+				return
 			case <-m.stop:
 				return
 			case now := <-ticker.C:
@@ -73,6 +84,16 @@ func NewMap[K comparable, V any](
 	}()
 
 	return
+}
+
+// Close will terminate TTL pruning of the Map. If Close is not called on a Map after it's no longer
+// needed, the Map will leak (unless the context has been cancelled).
+//
+// Close may be called multiple times and is safe to call even if the context has been cancelled.
+func (m *Map[K, V]) Close() {
+	if m.closed.CompareAndSwap(false, true) {
+		close(m.stop)
+	}
 }
 
 // Length returns the current length of the [Map]'s internal map. Length is safe for concurrent use.
@@ -183,10 +204,4 @@ func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 			break
 		}
 	}
-}
-
-// Close will terminate TTL pruning of the Map. If Close is not called on a Map after its no longer
-// needed, the Map will leak.
-func (m *Map[K, V]) Close() {
-	close(m.stop)
 }

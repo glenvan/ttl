@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -11,11 +12,16 @@ func main() {
 	maxTTL := 300 * time.Millisecond        // a key's time to live
 	startSize := 3                          // initial number of items in map
 	pruneInterval := 100 * time.Millisecond // prune expired items each time pruneInterval elapses
-	refreshLastAccessOnGet := true          // update item's 'lastAccessTime' on ttl.Map.Load()
+	refreshOnStore := true                  // update item's 'lastAccessTime' on ttl.Map.Load()
 
 	// Any comparable data type such as int, uint64, pointers and struct types (if all field
 	// types are comparable) can be used as the key type
-	t := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+	t := ttl.NewMap[string, string](
+		context.Background(),
+		maxTTL,
+		startSize,
+		pruneInterval,
+		refreshOnStore)
 	defer t.Close()
 
 	// Populate the ttl.Map

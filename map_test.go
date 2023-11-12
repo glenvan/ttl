@@ -1,6 +1,7 @@
 package ttl_test
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 type MapTestSuite struct {
 	suite.Suite
 
+	ctx           context.Context
 	maxTTL        time.Duration
 	pruneInterval time.Duration
 	startSize     int
@@ -23,6 +25,7 @@ type MapTestSuite struct {
 }
 
 func (s *MapTestSuite) SetupSuite() {
+	s.ctx = context.Background()
 	s.maxTTL = 300 * time.Millisecond
 	s.pruneInterval = 100 * time.Millisecond
 	s.startSize = 3
@@ -42,8 +45,8 @@ func TestMapTestSuite(t *testing.T) {
 }
 
 func (s *MapTestSuite) TestAllItemsExpired() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[string, any](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store("myString", "a b c")
@@ -55,8 +58,8 @@ func (s *MapTestSuite) TestAllItemsExpired() {
 }
 
 func (s *MapTestSuite) TestClose() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[string, any](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 
 	tm.Store("myString", "a b c")
 	tm.Store("int slice", []int{1, 2, 3})
@@ -68,9 +71,89 @@ func (s *MapTestSuite) TestClose() {
 	s.Equal(2, tm.Length())
 }
 
+func (s *MapTestSuite) TestCancelContext() {
+	refreshOnStore := true
+	cancellableCtx, cancelFunc := context.WithCancel(s.ctx)
+	tm := ttl.NewMap[string, any](
+		cancellableCtx,
+		s.maxTTL,
+		s.startSize,
+		s.pruneInterval,
+		refreshOnStore)
+
+	tm.Store("myString", "a b c")
+	tm.Store("int slice", []int{1, 2, 3})
+
+	cancelFunc()
+
+	time.Sleep(s.sleepTime)
+
+	s.Equal(2, tm.Length())
+}
+
+func (s *MapTestSuite) TestCloseAndCancelContextOrder() {
+	refreshOnStore := true
+	cancellableCtx, cancelFunc := context.WithCancel(s.ctx)
+	tm := ttl.NewMap[string, any](
+		cancellableCtx,
+		s.maxTTL,
+		s.startSize,
+		s.pruneInterval,
+		refreshOnStore)
+
+	tm.Store("myString", "a b c")
+	tm.Store("int slice", []int{1, 2, 3})
+
+	time.Sleep(s.sleepTime)
+
+	s.Equal(0, tm.Length())
+
+	tm.Close()
+	cancelFunc()
+}
+
+func (s *MapTestSuite) TestCancelContextAndCloseOrder() {
+	refreshOnStore := true
+	cancellableCtx, cancelFunc := context.WithCancel(s.ctx)
+	tm := ttl.NewMap[string, any](
+		cancellableCtx,
+		s.maxTTL,
+		s.startSize,
+		s.pruneInterval,
+		refreshOnStore)
+
+	tm.Store("myString", "a b c")
+	tm.Store("int slice", []int{1, 2, 3})
+
+	time.Sleep(s.sleepTime)
+
+	s.Equal(0, tm.Length())
+
+	cancelFunc()
+	tm.Close()
+}
+
+func (s *MapTestSuite) TestCancelContextAndCloseMany() {
+	refreshOnStore := true
+	cancellableCtx, cancelFunc := context.WithCancel(s.ctx)
+	tm := ttl.NewMap[string, any](
+		cancellableCtx,
+		s.maxTTL,
+		s.startSize,
+		s.pruneInterval,
+		refreshOnStore)
+
+	for i := 0; i < 10; i++ {
+		cancelFunc()
+		tm.Close()
+	}
+
+	cancelFunc() // one more to satisfy the golang static analysis
+}
+
 func (s *MapTestSuite) TestNoItemsExpired() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[string, any](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store("myString", "a b c")
@@ -81,22 +164,22 @@ func (s *MapTestSuite) TestNoItemsExpired() {
 }
 
 func (s *MapTestSuite) TestTTLRefresh() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[string, any](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
-	dontExpireKey := "int"
+	refreshedKey := "int"
 
 	tm.Store("myString", "a b c")
 	tm.Store("int slice", []int{1, 2, 3})
-	tm.Store(dontExpireKey, 1234)
+	tm.Store(refreshedKey, 1234)
 
 	doneCh := make(chan struct{})
 
 	go func() {
 		for start := time.Now(); time.Since(start) < s.sleepTime; {
 			time.Sleep(50 * time.Millisecond)
-			tm.Load(dontExpireKey)
+			tm.Load(refreshedKey)
 		}
 		close(doneCh)
 	}()
@@ -116,8 +199,8 @@ func (s *MapTestSuite) TestTTLRefresh() {
 }
 
 func (s *MapTestSuite) TestWithNoRefresh() {
-	refreshLastAccessOnGet := false
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := false
+	tm := ttl.NewMap[string, any](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store("myString", "a b c")
@@ -141,8 +224,8 @@ func (s *MapTestSuite) TestWithNoRefresh() {
 }
 
 func (s *MapTestSuite) TestDelete() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[string, any](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store("myString", "a b c")
@@ -164,8 +247,8 @@ func (s *MapTestSuite) TestDelete() {
 }
 
 func (s *MapTestSuite) TestDeleteFuncByKey() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[int, string](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store(0, "zero")
@@ -194,8 +277,8 @@ func (s *MapTestSuite) TestDeleteFuncByKey() {
 }
 
 func (s *MapTestSuite) TestDeleteFuncByValue() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[string, int](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store("zero", 0)
@@ -226,8 +309,8 @@ func (s *MapTestSuite) TestDeleteFuncByValue() {
 }
 
 func (s *MapTestSuite) TestClear() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[string, any](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store("myString", "a b c")
@@ -241,8 +324,8 @@ func (s *MapTestSuite) TestClear() {
 }
 
 func (s *MapTestSuite) TestLoadPassive() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[string, any](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store("myString", "a b c")
@@ -269,8 +352,8 @@ func (s *MapTestSuite) TestLoadPassive() {
 }
 
 func (s *MapTestSuite) TestUInt64Key() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[uint64, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[uint64, string](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store(18446744073709551615, "largest")
@@ -286,8 +369,8 @@ func (s *MapTestSuite) TestUInt64Key() {
 }
 
 func (s *MapTestSuite) TestUFloat32Key() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[float32, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[float32, string](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store(34000000000.12345, "largest")
@@ -303,8 +386,8 @@ func (s *MapTestSuite) TestUFloat32Key() {
 }
 
 func (s *MapTestSuite) TestByteKey() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[byte, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[byte, string](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	tm.Store(0x41, "A")
@@ -324,8 +407,8 @@ func (s *MapTestSuite) TestStructKey() {
 		y int
 	}
 
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[pos, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[pos, string](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	topLeft := pos{0, 0}
@@ -343,8 +426,8 @@ func (s *MapTestSuite) TestStructKey() {
 }
 
 func (s *MapTestSuite) TestRange() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, []int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[int, []int](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	firstSlice := []int{1, 2, 3}
@@ -368,8 +451,8 @@ func (s *MapTestSuite) TestRange() {
 }
 
 func (s *MapTestSuite) TestRangeDelete() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, []int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[int, []int](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	firstSlice := []int{1, 2, 3}
@@ -403,8 +486,8 @@ func (s *MapTestSuite) TestRangeDelete() {
 }
 
 func (s *MapTestSuite) TestRangeTransform() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, []int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[int, []int](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	firstSlice := []int{1, 2, 3}
@@ -440,8 +523,8 @@ func (s *MapTestSuite) TestRangeTransform() {
 }
 
 func (s *MapTestSuite) TestConcurrentStoreExpire() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[uint64, uint64](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[uint64, uint64](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	defer tm.Close()
 
 	startTime := time.Now()
@@ -465,8 +548,8 @@ func (s *MapTestSuite) TestConcurrentStoreExpire() {
 }
 
 func (s *MapTestSuite) TestConcurrentStoreDelete() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[int, int](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	tm.Close() // disable pruning
 
 	startTime := time.Now()
@@ -493,8 +576,8 @@ func (s *MapTestSuite) TestConcurrentStoreDelete() {
 }
 
 func (s *MapTestSuite) TestConcurrentStoreDeleteFuncOne() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[int, int](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	tm.Close() // disable pruning
 
 	startTime := time.Now()
@@ -523,8 +606,8 @@ func (s *MapTestSuite) TestConcurrentStoreDeleteFuncOne() {
 }
 
 func (s *MapTestSuite) TestConcurrentStoreDeleteFuncMatch() {
-	refreshLastAccessOnGet := true
-	tm := ttl.NewMap[int, int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	refreshOnStore := true
+	tm := ttl.NewMap[int, int](s.ctx, s.maxTTL, s.startSize, s.pruneInterval, refreshOnStore)
 	tm.Close() // disable pruning
 
 	startTime := time.Now()

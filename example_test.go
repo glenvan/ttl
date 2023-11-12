@@ -1,6 +1,7 @@
 package ttl_test
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -15,7 +16,12 @@ func ExampleMap() {
 
 	// Any comparable data type such as int, uint64, pointers and struct types (if all field
 	// types are comparable) can be used as the key type
-	t := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+	t := ttl.NewMap[string, string](
+		context.Background(),
+		maxTTL,
+		startSize,
+		pruneInterval,
+		refreshLastAccessOnGet)
 	defer t.Close()
 
 	// Populate the ttl.Map
@@ -54,7 +60,7 @@ func ExampleMap() {
 }
 
 func ExampleMap_Load() {
-	tm := ttl.NewMap[string, string](30*time.Second, 0, 2*time.Second, true)
+	tm := ttl.NewMap[string, string](context.Background(), 30*time.Second, 0, 2*time.Second, true)
 	defer tm.Close()
 
 	tm.Store("hello", "world")
@@ -68,7 +74,7 @@ func ExampleMap_Load() {
 }
 
 func ExampleMap_Range() {
-	tm := ttl.NewMap[string, string](30*time.Second, 0, 2*time.Second, true)
+	tm := ttl.NewMap[string, string](context.Background(), 30*time.Second, 0, 2*time.Second, true)
 	defer tm.Close()
 
 	tm.Store("hello", "world")
@@ -98,7 +104,7 @@ func ExampleMap_Range() {
 }
 
 func ExampleMap_DeleteFunc() {
-	tm := ttl.NewMap[string, int](30*time.Second, 0, 2*time.Second, true)
+	tm := ttl.NewMap[string, int](context.Background(), 30*time.Second, 0, 2*time.Second, true)
 	defer tm.Close()
 
 	tm.Store("zero", 0)
