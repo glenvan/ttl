@@ -1,6 +1,6 @@
 # Go Time-To-Live Containers
 
-![Build and Test](https://github.com/glenan/ttl/actions/workflows/go.yml/badge.svg)
+![Build and Test](https://github.com/glenvan/ttl/actions/workflows/go.yml/badge.svg)
 [![Go Reference](https://pkg.go.dev/badge/github.com/glenvan/ttl.svg)](https://pkg.go.dev/github.com/glenvan/ttl)
 
 ## Status
