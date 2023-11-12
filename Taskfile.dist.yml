@@ -6,6 +6,7 @@ version: '3'
 output: 'prefixed'
 
 vars:
+  PKG_NAME: github.com/glenvan/ttl
   PKG_VERSION: v0.1.3
 
 tasks:
@@ -55,7 +56,7 @@ tasks:
     cmds:
       - task: test
       - task: tag
-      - go list -m github.com/glenvan/ttl@{{.PKG_VERSION}}
+      - go list -m {{.PKG_NAME}}@{{.PKG_VERSION}}
     env:
       GOPROXY: proxy.golang.org
     silent: true
