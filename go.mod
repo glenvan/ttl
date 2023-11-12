@@ -1,4 +1,4 @@
-module github.com/glenvan/ttl
+module github.com/glenvan/ttl/v2
 
 go 1.21
 

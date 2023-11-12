@@ -10,7 +10,7 @@ import (
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/glenvan/ttl"
+	"github.com/glenvan/ttl/v2"
 )
 
 type MapTestSuite struct {
