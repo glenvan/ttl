@@ -1,7 +1,6 @@
 package ttl_test
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -9,19 +8,14 @@ import (
 )
 
 func ExampleMap() {
-	maxTTL := 300 * time.Millisecond        // a key's time to live
+	defaultTTL := 300 * time.Millisecond    // the default lifetime for a key/value pair
 	startSize := 3                          // initial number of items in map
 	pruneInterval := 100 * time.Millisecond // prune expired items each time pruneInterval elapses
-	refreshLastAccessOnGet := true          // update item's 'lastAccessTime' on ttl.Map.Load()
+	refreshOnLoad := true                   // update item's 'lastAccessTime' on ttl.Map.Load()
 
 	// Any comparable data type such as int, uint64, pointers and struct types (if all field
 	// types are comparable) can be used as the key type
-	t := ttl.NewMap[string, string](
-		context.Background(),
-		maxTTL,
-		startSize,
-		pruneInterval,
-		refreshLastAccessOnGet)
+	t := ttl.NewMap[string, string](defaultTTL, startSize, pruneInterval, refreshOnLoad)
 	defer t.Close()
 
 	// Populate the ttl.Map
@@ -38,7 +32,7 @@ func ExampleMap() {
 		return true
 	})
 
-	sleepTime := maxTTL + pruneInterval
+	sleepTime := defaultTTL + pruneInterval
 	fmt.Printf("Sleeping %s, items should be expired and removed afterward\n", sleepTime)
 
 	time.Sleep(sleepTime)
@@ -60,7 +54,7 @@ func ExampleMap() {
 }
 
 func ExampleMap_Load() {
-	tm := ttl.NewMap[string, string](context.Background(), 30*time.Second, 0, 2*time.Second, true)
+	tm := ttl.NewMap[string, string](30*time.Second, 0, 2*time.Second, true)
 	defer tm.Close()
 
 	tm.Store("hello", "world")
@@ -74,7 +68,7 @@ func ExampleMap_Load() {
 }
 
 func ExampleMap_Range() {
-	tm := ttl.NewMap[string, string](context.Background(), 30*time.Second, 0, 2*time.Second, true)
+	tm := ttl.NewMap[string, string](30*time.Second, 0, 2*time.Second, true)
 	defer tm.Close()
 
 	tm.Store("hello", "world")
@@ -95,6 +89,7 @@ func ExampleMap_Range() {
 		return true // continue
 	})
 
+	// Give the goroutine some time to complete
 	time.Sleep(20 * time.Millisecond)
 
 	fmt.Printf("Length after: %d\n", tm.Length())
@@ -104,7 +99,7 @@ func ExampleMap_Range() {
 }
 
 func ExampleMap_DeleteFunc() {
-	tm := ttl.NewMap[string, int](context.Background(), 30*time.Second, 0, 2*time.Second, true)
+	tm := ttl.NewMap[string, int](30*time.Second, 0, 2*time.Second, true)
 	defer tm.Close()
 
 	tm.Store("zero", 0)

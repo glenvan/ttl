@@ -9,7 +9,8 @@ import (
 )
 
 type mapItem[V any] struct {
-	Value      V
+	value      V
+	itemTTL    time.Duration
 	lastAccess atomic.Int64
 }
 
@@ -28,37 +29,57 @@ func (i *mapItem[V]) touch() {
 //
 // Adapted from: https://stackoverflow.com/a/25487392/452281
 type Map[K comparable, V any] struct {
-	m       map[K]*mapItem[V]
-	mtx     sync.RWMutex
-	refresh bool
-	stop    chan bool
-	closed  atomic.Bool
+	m             map[K]*mapItem[V]
+	mtx           sync.RWMutex
+	defaultTTL    time.Duration
+	refreshOnLoad bool
+	stop          chan bool
+	closed        atomic.Bool
 }
 
-// NewMap returns a new [Map] with items expiring according to the maxTTL specified if
+// NewMap returns a new [Map] with items expiring according to the defaultTTL specified if
 // they have not been accessed within that duration. Access refresh can be overridden so that
 // items expire after the TTL whether they have been accessed or not.
 //
-// NewMap accepts a context. If the context is cancelled, the pruning process will automatically
+// [Map] objects returned by NewMap must be closed with [Map.Close] when they're no longer needed.
+func NewMap[K comparable, V any](
+	defaultTTL time.Duration,
+	length int,
+	pruneInterval time.Duration,
+	refreshOnLoad bool,
+) (m *Map[K, V]) {
+	ctx := context.Background()
+	return NewMapContext[K, V](ctx, defaultTTL, length, pruneInterval, refreshOnLoad)
+}
+
+// NewMapContext returns a new [Map] with items expiring according to the defaultTTL specified if
+// they have not been accessed within that duration. Access refresh can be overridden so that
+// items expire after the TTL whether they have been accessed or not.
+//
+// NewMapContext accepts a context. If the context is cancelled, the pruning process will automatically
 // stop whether you've called [Map.Close] or not. It's safe to use either approach.
 //
 // context.Background() is perfectly acceptable as the default context, however you should
 // [Map.Close] the Map yourself in that case.
-func NewMap[K comparable, V any](
+//
+// [Map] objects returned by NewMapContext may still be closed with [Map.Close] when they're no
+// longer needed or if the cancellation of the context is not guaranteed.
+func NewMapContext[K comparable, V any](
 	ctx context.Context,
-	maxTTL time.Duration,
+	defaultTTL time.Duration,
 	length int,
 	pruneInterval time.Duration,
-	refreshLastAccessOnGet bool,
+	refreshOnLoad bool,
 ) (m *Map[K, V]) {
 	if length < 0 {
 		length = 0
 	}
 
 	m = &Map[K, V]{
-		m:       make(map[K]*mapItem[V], length),
-		refresh: refreshLastAccessOnGet,
-		stop:    make(chan bool),
+		m:             make(map[K]*mapItem[V], length),
+		defaultTTL:    defaultTTL,
+		refreshOnLoad: refreshOnLoad,
+		stop:          make(chan bool),
 	}
 
 	go func() {
@@ -76,7 +97,7 @@ func NewMap[K comparable, V any](
 				currentTime := now.UnixNano()
 				m.mtx.Lock()
 				maps.DeleteFunc(m.m, func(key K, item *mapItem[V]) bool {
-					return currentTime-item.lastAccess.Load() >= int64(maxTTL)
+					return currentTime-item.lastAccess.Load() >= int64(item.itemTTL)
 				})
 				m.mtx.Unlock()
 			}
@@ -104,20 +125,6 @@ func (m *Map[K, V]) Length() int {
 	return len(m.m)
 }
 
-// Store will insert a value into the [Map]. Store is safe for concurrent use.
-func (m *Map[K, V]) Store(key K, value V) {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-
-	it, ok := m.m[key]
-	if !ok {
-		it = &mapItem[V]{Value: value}
-		m.m[key] = it
-	}
-
-	it.touch()
-}
-
 // Load will retrieve a value from the [Map], as well as a bool indicating whether the key was
 // found. If the item was not found the value returned is undefined. Load is safe for concurrent
 // use.
@@ -132,6 +139,44 @@ func (m *Map[K, V]) LoadPassive(key K) (value V, ok bool) {
 	return m.loadImpl(key, false)
 }
 
+// Store will insert a value into the [Map] with the default tome to live. If the key/value pair
+// already exists, the last access time will be updated, but the TTL will not be changed. This
+// is important if the key/value pair was created with a non-default TTL using [Map.StoreWithTTL].
+// Store is safe for concurrent use.
+func (m *Map[K, V]) Store(key K, value V) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	it, ok := m.m[key]
+	if !ok {
+		it = &mapItem[V]{
+			itemTTL: m.defaultTTL,
+		}
+		m.m[key] = it
+	}
+
+	it.value = value
+	it.touch()
+}
+
+// StoreWithTTL will insert a value into the [Map] with a custom time to live. If the key/value pair
+// already exists, the last access time will be updated and the TTL will not be changed to the
+// parameter value. Store is safe for concurrent use.
+func (m *Map[K, V]) StoreWithTTL(key K, value V, TTL time.Duration) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	it, ok := m.m[key]
+	if !ok {
+		it = &mapItem[V]{}
+		m.m[key] = it
+	}
+
+	it.value = value
+	it.itemTTL = TTL
+	it.touch()
+}
+
 func (m *Map[K, V]) loadImpl(key K, update bool) (value V, ok bool) {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
@@ -142,9 +187,9 @@ func (m *Map[K, V]) loadImpl(key K, update bool) (value V, ok bool) {
 		return
 	}
 
-	value = it.Value
+	value = it.value
 
-	if !update || !m.refresh {
+	if !update || !m.refreshOnLoad {
 		return
 	}
 
@@ -168,7 +213,7 @@ func (m *Map[K, V]) DeleteFunc(del func(key K, value V) bool) {
 	defer m.mtx.Unlock()
 
 	for key, item := range m.m {
-		if del(key, item.Value) {
+		if del(key, item.value) {
 			delete(m.m, key)
 		}
 	}
@@ -200,7 +245,7 @@ func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 	defer m.mtx.Unlock()
 
 	for key, item := range m.m {
-		if !f(key, item.Value) {
+		if !f(key, item.value) {
 			break
 		}
 	}

@@ -19,7 +19,7 @@ few enhancements and creature-comforts:
   - Meaning that both key and value are determined by Generics
   - Using `any` or `interface{}` as the value type will effectively emulate the original source
     package
-- `Map` accepts a [`context.Context`](https://pkg.go.dev/context@go1.21.4)
+- `Map` can be created with a [`context.Context`](https://pkg.go.dev/context@go1.21.4)
   - `Map` will automatically stop pruning expired items (equivalent to `Map.Close()`) if the
     context cancels to prevent goroutine leaks
   - Great for services
@@ -28,6 +28,8 @@ few enhancements and creature-comforts:
 - The syntax is a little more idiomatic
 - Methods have been renamed to be more familiar to Go standard library users
   - `Load()` and `Store()` instead of `Get()` and `Set()`
+- Key/value pairs can use the default TTL for the `Map`, or have their own individual TTL by
+  using `StoreWithTTL`
 - Code is a little safer for concurrent use (at the time of the fork) and more performant in that
   use case
   - Use of `sync.RWLock` so that read-heavy applications block less
@@ -64,19 +66,14 @@ import (
 )
 
 func main() {
-	maxTTL := 300 * time.Millisecond        // a key's time to live
+	defaultTTL := 300 * time.Millisecond    // a key's time to live
 	startSize := 3                          // initial number of items in map
 	pruneInterval := 100 * time.Millisecond // prune expired items each time pruneInterval elapses
-	refreshOnStore := true                  // update item's 'lastAccessTime' on ttl.Map.Load()
+	refreshOnLoad := true                   // update item's 'lastAccessTime' on ttl.Map.Load()
 
 	// Any comparable data type such as int, uint64, pointers and struct types (if all field
 	// types are comparable) can be used as the key type
-	t := ttl.NewMap[string, string](
-		context.Background(),
-		maxTTL,
-		startSize,
-		pruneInterval,
-		refreshOnStore)
+	t := ttl.NewMap[string, string](defaultTTL, startSize, pruneInterval, refreshOnLoad)
 	defer t.Close()
 
 	// Populate the ttl.Map
@@ -93,7 +90,7 @@ func main() {
 		return true
 	})
 
-	sleepTime := maxTTL + pruneInterval
+	sleepTime := defaultTTL + pruneInterval
 	fmt.Printf("Sleeping %s, items should be expired and removed afterward\n", sleepTime)
 
 	time.Sleep(sleepTime)

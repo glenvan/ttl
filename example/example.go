@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -9,16 +8,12 @@ import (
 )
 
 func main() {
-	maxTTL := time.Duration(time.Second * 4)        // time in seconds
+	defaultTTL := time.Duration(time.Second * 4)    // time in seconds
 	startSize := 3                                  // initial number of items in map
 	pruneInterval := time.Duration(time.Second * 1) // search for expired items every 'pruneInterval' seconds
-	refreshOnStore := true                          // update item's lastAccessTime on a .Get()
-	t := ttl.NewMap[string, any](
-		context.Background(),
-		maxTTL,
-		startSize,
-		pruneInterval,
-		refreshOnStore)
+	refreshOnLoad := true                           // update item's lastAccessTime on a .Get()
+
+	t := ttl.NewMap[string, any](defaultTTL, startSize, pruneInterval, refreshOnLoad)
 	defer t.Close()
 
 	// populate the ttl.Map
@@ -54,7 +49,7 @@ func main() {
 	}()
 
 	// ttl.Map has an expiration time, wait until this amount of time passes
-	sleepTime := maxTTL + 2*pruneInterval
+	sleepTime := defaultTTL + 2*pruneInterval
 	fmt.Println()
 	fmt.Printf(
 		"Sleeping %v, items should be removed after this time, except for the '%v' key\n",
