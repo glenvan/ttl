@@ -27,7 +27,7 @@ few enhancements and creature-comforts:
   - For example: a slice implementation
 - The syntax is a little more idiomatic
 - Methods have been renamed to be more familiar to Go standard library users
-  - `Load()` and `Store()` instead of `Get()` and `Set()`
+  - `Load()` and `Store()` instead of `Get()` and `Put()`
 - Key/value pairs can use the default TTL for the `Map`, or have their own individual TTL by
   using `StoreWithTTL`
 - Code is a little safer for concurrent use (at the time of the fork) and more performant in that
