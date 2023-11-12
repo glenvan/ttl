@@ -3,6 +3,11 @@
 
 version: '3'
 
+output: 'prefixed'
+
+vars:
+  PKG_VERSION: v0.1.2
+
 tasks:
   default:
     cmds:
@@ -22,3 +27,28 @@ tasks:
   tidy:
     cmds:
       - go mod tidy
+    silent: true
+
+  pull-tags:
+    internal: true
+    cmds:
+      - git pull --tags
+    silent: true
+
+  tag:
+    deps: [pull-tags]
+    cmds:
+      - git tag {{.PKG_VERSION}}
+      - git push origin {{.PKG_VERSION}}
+    status:
+      - '[ $(git tag -l "{{.PKG_VERSION}}") ]'
+    silent: true
+
+  publish:
+    deps: [tidy, test]
+    cmds:
+      - task: tag
+      - go list -m github.com/glenvan/ttl@{{.PKG_VERSION}}
+    env:
+      GOPROXY: proxy.golang.org
+    silent: true
