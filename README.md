@@ -1,7 +1,6 @@
 # Go Time-To-Live Containers
 
 ![Build and Test](https://github.com/glenvan/ttl/actions/workflows/go.yml/badge.svg)
-[![Go Reference](https://pkg.go.dev/badge/github.com/glenvan/ttl.svg)](https://pkg.go.dev/github.com/glenvan/ttl)
 
 ## Introduction
 
@@ -142,7 +141,7 @@ ttl.Map length: 0
 
 ## API
 
-See the [package documentation](https://pkg.go.dev/github.com/glenvan/ttl).
+See the [package documentation](https://pkg.go.dev/github.com/glenvan/ttl/v2).
 
 ## Acknowledgments
 
