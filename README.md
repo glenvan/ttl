@@ -29,12 +29,15 @@ few enhancements and creature-comforts:
   use case
   - Use of `sync.RWLock` so that read-heavy applications block less
   - Use of `atomic.Int64` for the timestamp so that it may be updated without a write lock
-  - Addition of `ttl.Map.Range()` as an alternative to the `All()` method
+  - Addition of `ttl.Map.Range()` in place of the `All()` method
     - Modelled after [`sync.Map.Range()`](https://pkg.go.dev/sync@go1.21.4#Map.Range)
-  - Addition of `ttl.Map.Eject()`, which produces a conventional `map[K]V` copy of the Map
-    - Depending on the value type, this may be more convenient and possibly safe for concurrent use
-      under the right circumstances
+    - Safe for concurrent access
 - Replace internal `time.Tick()` with a `time.Ticker` to prevent leakage
+
+## License
+
+This project is licensed under the terms of [the MIT License](./LICENSE). It derives from
+previous work, also licensed under the terms of [the MIT License](./LICENSE.orig.txt).
 
 ## Example
 

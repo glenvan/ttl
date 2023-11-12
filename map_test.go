@@ -1,297 +1,329 @@
 package ttl_test
 
 import (
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/suite"
 
 	"github.com/glenvan/ttl"
 )
 
-func TestAllItemsExpired(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 4)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 1) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
-	defer tm.Close()
+type MapTestSuite struct {
+	suite.Suite
 
-	// populate the TtlMap
-	tm.Store("myString", "a b c")
-	tm.Store("int_array", "1 2 3")
-
-	time.Sleep(maxTTL + pruneInterval)
-	t.Logf("tm.len: %v\n", tm.Length())
-	if tm.Length() > 0 {
-		t.Errorf("t.Length should be 0, but actually equals %v\n", tm.Length())
-	}
+	maxTTL        time.Duration
+	pruneInterval time.Duration
+	startSize     int
+	sleepTime     time.Duration
 }
 
-func TestNoItemsExpired(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 3) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
-	defer tm.Close()
-
-	// populate the TtlMap
-	tm.Store("myString", "a b c")
-	tm.Store("int_array", "1 2 3")
-
-	time.Sleep(maxTTL)
-	t.Logf("tm.len: %v\n", tm.Length())
-	if tm.Length() != 2 {
-		t.Fatalf("t.Length should equal 2, but actually equals %v\n", tm.Length())
-	}
+func (s *MapTestSuite) SetupSuite() {
+	s.maxTTL = 300 * time.Millisecond
+	s.pruneInterval = 100 * time.Millisecond
+	s.startSize = 3
+	s.sleepTime = s.maxTTL + 2*s.pruneInterval
 }
 
-func TestKeepFloat(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 1) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func TestMapTestSuite(t *testing.T) {
+	suite.Run(t, new(MapTestSuite))
+}
+
+func (s *MapTestSuite) TestAllItemsExpired() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	defer tm.Close()
+
+	tm.Store("myString", "a b c")
+	tm.Store("int slice", []int{1, 2, 3})
+
+	time.Sleep(s.maxTTL + s.pruneInterval)
+
+	s.Zero(tm.Length())
+}
+
+func (s *MapTestSuite) TestNoItemsExpired() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	defer tm.Close()
+
+	tm.Store("myString", "a b c")
+	tm.Store("int slice", []int{1, 2, 3})
+
+	time.Sleep(s.maxTTL - 100*time.Millisecond)
+	s.Equal(2, tm.Length())
+}
+
+func (s *MapTestSuite) TestTTLRefresh() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
 	dontExpireKey := "int"
 
-	// populate the TtlMap
 	tm.Store("myString", "a b c")
-	tm.Store("int_array", "1 2 3")
-	tm.Store(dontExpireKey, "1234")
+	tm.Store("int slice", []int{1, 2, 3})
+	tm.Store(dontExpireKey, 1234)
+
+	doneCh := make(chan struct{})
 
 	go func() {
-		for range time.Tick(time.Second) {
+		for start := time.Now(); time.Since(start) < s.sleepTime; {
+			time.Sleep(50 * time.Millisecond)
 			tm.Load(dontExpireKey)
 		}
+		close(doneCh)
 	}()
 
-	time.Sleep(maxTTL + pruneInterval)
-	if tm.Length() != 1 {
-		t.Fatalf("t.Length should equal 1, but actually equals %v\n", tm.Length())
-	}
+	<-doneCh
 
-	allItems, unlockFunc := tm.All()
-	defer unlockFunc()
-	if (*allItems)[dontExpireKey].Value != "1234" {
-		t.Errorf("Value should equal 1234 but actually equals %v\n", (*allItems)[dontExpireKey].Value)
-	}
-	t.Logf("tm.Length: %v\n", tm.Length())
-	t.Logf("%v Value: %v\n", dontExpireKey, (*allItems)[dontExpireKey].Value)
+	s.Equal(1, tm.Length())
 
+	tm.Range(func(key string, value any) bool {
+		v, ok := value.(int)
+		if s.True(ok) {
+			s.Equal(1234, v)
+		}
+
+		return true
+	})
 }
 
-func TestWithNoRefresh(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 4)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 1) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := false                 // do NOT update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func (s *MapTestSuite) TestWithNoRefresh() {
+	refreshLastAccessOnGet := false
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
-	// populate the TtlMap
 	tm.Store("myString", "a b c")
-	tm.Store("int_array", "1, 2, 3")
+	tm.Store("int slice", []int{1, 2, 3})
+
+	doneCh := make(chan struct{})
 
 	go func() {
-		for range time.Tick(time.Second) {
+		for start := time.Now(); time.Since(start) < s.sleepTime; {
+			time.Sleep(50 * time.Millisecond)
+
 			tm.Load("myString")
-			tm.Load("int_array")
+			tm.Load("int slice")
 		}
+		close(doneCh)
 	}()
 
-	time.Sleep(maxTTL + pruneInterval)
-	t.Logf("tm.Length: %v\n", tm.Length())
-	if tm.Length() != 0 {
-		t.Errorf("t.Length should be 0, but actually equals %v\n", tm.Length())
-	}
+	<-doneCh
+
+	s.Equal(0, tm.Length())
 }
 
-func TestDelete(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 4) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func (s *MapTestSuite) TestDelete() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
-	// populate the TtlMap
 	tm.Store("myString", "a b c")
-	tm.Store("int_array", "1, 2, 3")
+	tm.Store("int slice", []int{1, 2, 3})
 
-	tm.Delete("int_array")
-	t.Logf("tm.len: %v\n", tm.Length())
-	if tm.Length() != 1 {
-		t.Fatalf("t.Length should equal 1, but actually equals %v\n", tm.Length())
-	}
+	s.Equal(2, tm.Length())
+
+	tm.Delete("int slice")
+
+	_, ok := tm.Load("nt slice")
+	s.False(ok)
+	s.Equal(1, tm.Length())
 
 	tm.Delete("myString")
-	t.Logf("tm.len: %v\n", tm.Length())
-	if tm.Length() != 0 {
-		t.Fatalf("t.Length should equal 0, but actually equals %v\n", tm.Length())
-	}
+
+	_, ok = tm.Load("myString")
+	s.False(ok)
+	s.Equal(0, tm.Length())
 }
 
-func TestClear(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 4) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func (s *MapTestSuite) TestClear() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
-	// populate the TtlMap
 	tm.Store("myString", "a b c")
-	tm.Store("int_array", "1, 2, 3")
-	t.Logf("tm.len: %v\n", tm.Length())
-	if tm.Length() != 2 {
-		t.Fatalf("t.Length should equal 2, but actually equals %v\n", tm.Length())
-	}
+	tm.Store("int slice", []int{1, 2, 3})
+
+	s.Equal(2, tm.Length())
 
 	tm.Clear()
-	t.Logf("tm.len: %v\n", tm.Length())
-	if tm.Length() != 0 {
-		t.Fatalf("t.Length should equal 0, but actually equals %v\n", tm.Length())
-	}
+
+	s.Equal(0, tm.Length())
 }
 
-func TestAllFunc(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 4) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func (s *MapTestSuite) TestAllFunc() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
-	// populate the TtlMap
 	tm.Store("myString", "a b c")
-	tm.Store("int", "1234")
-	tm.Store("floatPi", "3.1415")
-	tm.Store("int_array", "1, 2, 3")
-	tm.Store("boolean", "true")
+	tm.Store("int", 1234)
+	tm.Store("float Pi", 3.1415)
+	tm.Store("int slice", []int{1, 2, 3})
+	tm.Store("boolean", true)
 
-	tm.Delete("floatPi")
-	//t.Logf("tm.len: %v\n", tm.Length())
-	if tm.Length() != 4 {
-		t.Fatalf("t.Length should equal 4, but actually equals %v\n", tm.Length())
-	}
+	s.Equal(5, tm.Length())
+
+	tm.Delete("float Pi")
+	_, ok := tm.Load("float Pi")
+	s.False(ok)
+
+	s.Equal(4, tm.Length())
 
 	tm.Store("byte", "0x7b")
-	var u = "123456789"
+	var u uint64 = 123456789
 	tm.Store("uint64", u)
 
-	allItems, unlockFunc := tm.All()
-	defer unlockFunc()
-	if (*allItems)["int"].Value != "1234" {
-		t.Fatalf("allItems and tm.m are not equal\n")
-	}
+	s.Equal(6, tm.Length())
 }
 
-func TestGetNoUpdate(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 4) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func (s *MapTestSuite) TestLoadPassive() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[string, any](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
-	// populate the TtlMap
 	tm.Store("myString", "a b c")
-	tm.Store("int", "1234")
-	tm.Store("floatPi", "3.1415")
-	tm.Store("int_array", "1, 2, 3")
-	tm.Store("boolean", "true")
+	tm.Store("int", 1234)
+	tm.Store("float Pi", 3.1415)
+	tm.Store("int slice", []int{1, 2, 3})
+	tm.Store("boolean", true)
+
+	doneCh := make(chan struct{})
 
 	go func() {
-		for range time.Tick(time.Second) {
+		for start := time.Now(); time.Since(start) < s.sleepTime; {
+			time.Sleep(50 * time.Millisecond)
+
 			tm.LoadPassive("myString")
-			tm.LoadPassive("int_array")
+			tm.LoadPassive("int slice")
 		}
+		close(doneCh)
 	}()
 
-	time.Sleep(maxTTL + pruneInterval)
-	t.Logf("tm.Length: %v\n", tm.Length())
-	if tm.Length() != 0 {
-		t.Errorf("t.Length should be 0, but actually equals %v\n", tm.Length())
-	}
+	<-doneCh
+
+	s.Zero(tm.Length())
 }
 
-func TestUInt64Key(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 4) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[uint64, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func (s *MapTestSuite) TestUInt64Key() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[uint64, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
 	tm.Store(18446744073709551615, "largest")
 	tm.Store(9223372036854776000, "mid")
 	tm.Store(0, "zero")
 
-	allItems, unlockFunc := tm.All()
-	for k, v := range *allItems {
-		t.Logf("k: %v   v: %v\n", k, v.Value)
-	}
-	unlockFunc()
-	allItems = nil
+	s.Equal(3, tm.Length())
 
-	time.Sleep(maxTTL + pruneInterval)
-	t.Logf("tm.Length: %v\n", tm.Length())
-	if tm.Length() != 0 {
-		t.Errorf("t.Length should be 0, but actually equals %v\n", tm.Length())
+	v, ok := tm.Load(9223372036854776000)
+	if s.True(ok) {
+		s.Equal("mid", v)
 	}
 }
 
-func TestUFloat32Key(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 4) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[float32, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func (s *MapTestSuite) TestUFloat32Key() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[float32, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
 	tm.Store(34000000000.12345, "largest")
 	tm.Store(12312312312.98765, "mid")
 	tm.Store(0.001, "tiny")
 
-	allItems, unlockFunc := tm.All()
-	for k, v := range *allItems {
-		t.Logf("k: %v   v: %v\n", k, v.Value)
-	}
-	unlockFunc()
-	allItems = nil
+	s.Equal(3, tm.Length())
 
 	v, ok := tm.Load(0.001)
-	t.Logf("k: 0.001   v:%v   (verified: %t)\n", v, ok)
-
-	time.Sleep(maxTTL + pruneInterval)
-	t.Logf("tm.Length: %v\n", tm.Length())
-	if tm.Length() != 0 {
-		t.Errorf("t.Length should be 0, but actually equals %v\n", tm.Length())
+	if s.True(ok) {
+		s.Equal("tiny", v)
 	}
 }
 
-func TestByteKey(t *testing.T) {
-	maxTTL := time.Duration(time.Second * 2)        // time in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 4) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	tm := ttl.NewMap[byte, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+func (s *MapTestSuite) TestByteKey() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[byte, string](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
 	defer tm.Close()
 
 	tm.Store(0x41, "A")
 	tm.Store(0x7a, "z")
 
-	allItems, unlockFunc := tm.All()
-	for k, v := range *allItems {
-		t.Logf("k: %x   v: %v\n", k, v.Value)
-	}
-	unlockFunc()
-	allItems = nil
+	s.Equal(2, tm.Length())
 
-	time.Sleep(maxTTL + pruneInterval)
-	t.Logf("tm.Length: %v\n", tm.Length())
-	if tm.Length() != 0 {
-		t.Errorf("t.Length should be 0, but actually equals %v\n", tm.Length())
+	v, ok := tm.Load(0x41)
+	if s.True(ok) {
+		s.Equal("A", v)
+	}
+}
+
+func (s *MapTestSuite) TestRange() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[int, []int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	defer tm.Close()
+
+	firstSlice := []int{1, 2, 3}
+	secondSlice := []int{4, 5, 6}
+	tm.Store(0, firstSlice)
+	tm.Store(1, secondSlice)
+
+	s.Equal(2, tm.Length())
+
+	tm.Range(func(key int, val []int) bool {
+		switch key {
+		case 0:
+			s.True(slices.Equal(firstSlice, val), "firstSlice did not equal the returned value")
+
+		case 1:
+			s.True(slices.Equal(secondSlice, val), "secondSlice did not equal the returned value")
+		}
+
+		return true
+	})
+}
+
+func (s *MapTestSuite) TestRangeMutate() {
+	refreshLastAccessOnGet := true
+	tm := ttl.NewMap[int, []int](s.maxTTL, s.startSize, s.pruneInterval, refreshLastAccessOnGet)
+	defer tm.Close()
+
+	firstSlice := []int{1, 2, 3}
+	secondSlice := []int{4, 5, 6}
+	thirdSlice := []int{7, 8, 9}
+	tm.Store(0, firstSlice)
+	tm.Store(1, secondSlice)
+	tm.Store(2, thirdSlice)
+
+	s.Equal(3, tm.Length())
+
+	doneCh := make(chan struct{})
+
+	tm.Range(func(key int, val []int) bool {
+		switch key {
+		case 0:
+			// deferred deletion in a goroutine
+			go func() {
+				tm.Delete(key)
+				close(doneCh)
+			}()
+
+		case 2:
+			val[1] = 88
+		}
+
+		return true
+	})
+
+	<-doneCh
+
+	modifiedThirdSlice := []int{7, 88, 9}
+	s.Equal(2, tm.Length())
+	v, ok := tm.Load(2)
+	if s.True(ok) {
+		s.Truef(
+			slices.Equal(modifiedThirdSlice, v),
+			"Actual %v does not equal expected %v",
+			v,
+			modifiedThirdSlice)
 	}
 }

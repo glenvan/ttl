@@ -1,21 +1,19 @@
-package main
+package ttl
 
 import (
 	"fmt"
 	"time"
-
-	"github.com/glenvan/ttl"
 )
 
-func main() {
+func ExampleMap() {
 	maxTTL := time.Duration(time.Second * 4)        // time in seconds
 	startSize := 3                                  // initial number of items in map
 	pruneInterval := time.Duration(time.Second * 1) // search for expired items every 'pruneInterval' seconds
 	refreshLastAccessOnGet := true                  // update item's lastAccessTime on a .Get()
-	t := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
+	t := NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
 	defer t.Close()
 
-	// populate the ttl.Map
+	// populate the Map
 	t.Store("string", "a b c")
 	t.Store("int", "3")
 	t.Store("float", "4.4")
@@ -26,9 +24,9 @@ func main() {
 	t.Store("uint64", "123456789")
 
 	fmt.Println()
-	fmt.Println("ttl.Map length:", t.Length())
+	fmt.Println("Map length:", t.Length())
 
-	// display all items in ttl.Map
+	// display all items in Map
 	fmt.Println()
 	fmt.Println("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv")
 	t.Range(func(key string, value string) bool {
@@ -47,7 +45,7 @@ func main() {
 		}
 	}()
 
-	// ttl.Map has an expiration time, wait until this amount of time passes
+	// Map has an expiration time, wait until this amount of time passes
 	sleepTime := maxTTL + pruneInterval
 	fmt.Println()
 	fmt.Printf("Sleeping %v seconds, items should be removed after this time, except for the '%v' key\n", sleepTime, dontExpireKey)
@@ -77,7 +75,7 @@ func main() {
 	if v, ok := t.Load("int"); ok {
 		fmt.Printf("[int] is %s", v)
 	}
-	fmt.Println("ttl.Map length:", t.Length(), " (should equal 1)")
+	fmt.Println("Map length:", t.Length(), " (should equal 1)")
 	fmt.Println()
 
 	fmt.Println()
@@ -85,17 +83,57 @@ func main() {
 	t.Delete("int")
 	_, ok = t.Load("int")
 	fmt.Printf("    successful? %t\n", !ok)
-	fmt.Println("ttl.Map length:", t.Length(), " (should equal 0)")
+	fmt.Println("Map length:", t.Length(), " (should equal 0)")
 	fmt.Println()
 
 	fmt.Println("Adding 2 items and then running Clear()")
 	t.Store("string", "a b c")
 	t.Store("int", "3")
-	fmt.Println("ttl.Map length:", t.Length())
+	fmt.Println("Map length:", t.Length())
 
 	fmt.Println()
 	fmt.Println("Running Clear()")
 	t.Clear()
-	fmt.Println("ttl.Map length:", t.Length())
+	fmt.Println("Map length:", t.Length())
 	fmt.Println()
+}
+
+func ExampleMap_Load() {
+	tm := NewMap[string, string](30*time.Second, 0, 2*time.Second, true)
+	tm.Store("hello", "world")
+
+	value, ok := tm.Load("hello")
+	if ok {
+		fmt.Println(value)
+	}
+	// Output:
+	// world
+}
+
+func ExampleMap_Range() {
+	tm := NewMap[string, string](30*time.Second, 0, 2*time.Second, true)
+	tm.Store("hello", "world")
+	tm.Store("goodbye", "universe")
+
+	fmt.Printf("Length before: %d", tm.Length())
+
+	tm.Range(func(key string, val string) bool {
+		if key == "goodbye" {
+			// deferred deletion in a goroutine
+			go func() {
+				tm.Delete(key)
+			}()
+
+			return false // break
+		}
+
+		return true // continue
+	})
+
+	time.Sleep(20 * time.Millisecond)
+
+	fmt.Printf("Length after: %d", tm.Length())
+	// Output:
+	// Length Before: 2
+	// Length After: 1
 }

@@ -6,47 +6,33 @@ import (
 	"time"
 )
 
-// MapRUnlockFunc is a function type returned by ttl.All() to release the read-lock on the Map
-type MapRUnlockFunc func()
-
-// MapItem is an internal record for values stored in a Map. It is primarily an internal type used
-// by Map, but can also be used when accessing items using Map.All(). MapItem.Value is not safe
-// for concurrent use, unless it has been returned by a method like Map.All() that holds an
-// extended lock on the Map containing the MapItem.
-//
-// Contains unexported fields.
-type MapItem[V any] struct {
+type mapItem[V any] struct {
 	Value      V
 	lastAccess atomic.Int64
 }
 
-// Touch will update the timestamp of a map item to the current time, extending its time to live.
-// Touch is safe for concurrent use.
-func (i *MapItem[V]) Touch() {
+func (i *mapItem[V]) touch() {
 	i.lastAccess.Store(time.Now().UnixNano())
 }
 
 // Map is a "time-to-live" map such that after a given amount of time, items in the map are deleted.
+// Map is safe for concurrent use.
 //
-// When a Load() or Store() occurs, the lastAccess time is set to time.Now().UnixNano(),
-// Therefore, only items that are not called by Load() or Store() will be deleted after the TTL
-// occurs.
+// When a [Map.Load] or [Map.Store] occurs, the lastAccess time is set to the current time.
+// Therefore, only items that are not called by [Map.Load] or [Map.Store] will be deleted after
+// the TTL expires.
 //
-// LoadPassive() can be used in which case the lastAccess time will *not* be updated.
-//
-// Map is generally safe for concurrent use, except where noted in a Map method.
+// [Map.LoadPassive] can be used in which case the lastAccess time will *not* be updated.
 //
 // Adapted from: https://stackoverflow.com/a/25487392/452281
-//
-// Contains unexported fields.
 type Map[K comparable, V any] struct {
-	m       map[K]*MapItem[V]
+	m       map[K]*mapItem[V]
 	mtx     sync.RWMutex
 	refresh bool
 	stop    chan bool
 }
 
-// NewMap returns a new Map[K,V] with items expiring according to the maxTTL specified if
+// NewMap returns a new [Map] with items expiring according to the maxTTL specified if
 // they have not been accessed within that duration. Access refresh can be overridden so that
 // items expire after the TTL whether they have been accessed or not.
 func NewMap[K comparable, V any](
@@ -60,7 +46,7 @@ func NewMap[K comparable, V any](
 	}
 
 	m = &Map[K, V]{
-		m:       make(map[K]*MapItem[V], length),
+		m:       make(map[K]*mapItem[V], length),
 		refresh: refreshLastAccessOnGet,
 		stop:    make(chan bool),
 	}
@@ -92,7 +78,7 @@ func NewMap[K comparable, V any](
 	return
 }
 
-// Length returns the current length of the Map's internal map. Length is safe for concurrent use.
+// Length returns the current length of the [Map]'s internal map. Length is safe for concurrent use.
 func (m *Map[K, V]) Length() int {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
@@ -100,29 +86,29 @@ func (m *Map[K, V]) Length() int {
 	return len(m.m)
 }
 
-// Store will insert a value into the Map. Store is safe for concurrent use.
+// Store will insert a value into the [Map]. Store is safe for concurrent use.
 func (m *Map[K, V]) Store(key K, value V) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
 	it, ok := m.m[key]
 	if !ok {
-		it = &MapItem[V]{Value: value}
+		it = &mapItem[V]{Value: value}
 		m.m[key] = it
 	}
 
-	it.Touch()
+	it.touch()
 }
 
-// Load will retrieve a value from the Map, as well as a bool indicating whether the key was
+// Load will retrieve a value from the [Map], as well as a bool indicating whether the key was
 // found. If the item was not found the value returned is undefined. Load is safe for concurrent
 // use.
 func (m *Map[K, V]) Load(key K) (value V, ok bool) {
 	return m.loadImpl(key, true)
 }
 
-// LoadPassive will retrieve a value from the Map without updating that value's time to live, as
-// well as a bool indicating whether the key was found. If the item was not found the value
+// LoadPassive will retrieve a value from the [Map] (without updating that value's time to live),
+// as well as a bool indicating whether the key was found. If the item was not found the value
 // returned is undefined. LoadPassive is safe for concurrent use.
 func (m *Map[K, V]) LoadPassive(key K) (value V, ok bool) {
 	return m.loadImpl(key, false)
@@ -132,7 +118,7 @@ func (m *Map[K, V]) loadImpl(key K, update bool) (value V, ok bool) {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 
-	var it *MapItem[V]
+	var it *mapItem[V]
 
 	if it, ok = m.m[key]; !ok {
 		return
@@ -144,12 +130,12 @@ func (m *Map[K, V]) loadImpl(key K, update bool) (value V, ok bool) {
 		return
 	}
 
-	it.Touch()
+	it.touch()
 
 	return
 }
 
-// Delete will remove a key and its value from the Map. Delete is safe for concurrent use.
+// Delete will remove a key and its value from the [Map]. Delete is safe for concurrent use.
 func (m *Map[K, V]) Delete(key K) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
@@ -157,7 +143,7 @@ func (m *Map[K, V]) Delete(key K) {
 	delete(m.m, key)
 }
 
-// Clear will remove all key/value pairs from the Map. Clear is safe for concurrent use.
+// Clear will remove all key/value pairs from the [Map]. Clear is safe for concurrent use.
 func (m *Map[K, V]) Clear() {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
@@ -165,44 +151,17 @@ func (m *Map[K, V]) Clear() {
 	clear(m.m)
 }
 
-// All will acquire a read lock on the internal map and returns a pointer to it, along with a
-// function to use to release the read lock. Failing to release the read lock will block future
-// writes and would result in a panic if the same goroutine attempts to acquire a second read lock,
-// so be careful. It is also advisable to assign nil to the returned pointer after unlocking to
-// prevent accidental access of map while unlocked.
-//
-// Generally if you only require access to the internal map to range over its values, consider
-// using the Range method instead.
-func (m *Map[K, V]) All() (*map[K]*MapItem[V], MapRUnlockFunc) {
-	m.mtx.RLock()
-	var f MapRUnlockFunc = func() { m.mtx.RUnlock() }
-
-	return &m.m, f
-}
-
-// Eject will return a new map[K]V, mirroring the contents of the original Map. If V is a scalar
-// type (integers, floats, bool) or string, Eject is safe for concurrent use. However, if the
-// V is a pointer or mutable reference type (slices, maps), or a struct containing pointer or
-// mutable reference types, then the values should not be considered safe for concurrent use in
-// most cases.
-//
-// Generally if V is not a scalar or string, use the All method instead. If you only require
-// access to the internal map to range over its values, consider using the Range method instead.
-func (m *Map[K, V]) Eject() map[K]V {
-	m.mtx.RLock()
-	defer m.mtx.RUnlock()
-
-	dst := make(map[K]V, len(m.m))
-
-	for key, item := range m.m {
-		dst[key] = item.Value
-	}
-
-	return dst
-}
-
-// Range calls f sequentially for each key and value present in the map. If f returns false, range
+// Range calls f sequentially for each key and value present in the [Map]. If f returns false, range
 // stops the iteration.
+//
+// Range is safe for concurrent use and supports modifying the value (assuming it's a slice, map,
+// or a struct) within the range function. However, this requires a write lock on the Map – so you
+// are not able to perform [Map.Delete] or [Map.Store] operations on the original [Map] directly
+// within the range func, as that would cause a panic. Even an accessor like [Map.Load] or
+// [Map.LoadPassive] would lock indefinitely.
+//
+// If you need to perform operations on the original [Map], do so in a new goroutine from within
+// the range func – effectively deferring the operation until the Range completes.
 func (m *Map[K, V]) Range(f func(key K, value V) bool) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
