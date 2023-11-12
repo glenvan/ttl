@@ -8,35 +8,40 @@ import (
 )
 
 func main() {
-	maxTTL := time.Duration(time.Second * 4)        // a key's time to live in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 1) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's 'lastAccessTime' on a .Get()
+	maxTTL := 300 * time.Millisecond        // a key's time to live
+	startSize := 3                          // initial number of items in map
+	pruneInterval := 100 * time.Millisecond // prune expired items each time pruneInterval elapses
+	refreshLastAccessOnGet := true          // update item's 'lastAccessTime' on ttl.Map.Load()
 
-	// any comparable data type such as int, uint64, pointers and struct types (if all field types are comparable)
-	// can be used as the key type, not just string
+	// Any comparable data type such as int, uint64, pointers and struct types (if all field
+	// types are comparable) can be used as the key type
 	t := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
 	defer t.Close()
 
-	// populate the TtlMap
-	t.Store("myString", "a b c")
-	t.Store("int_array", "1, 2, 3")
-	fmt.Println("TtlMap length:", t.Length())
+	// Populate the ttl.Map
+	t.Store("hello", "world")
+	t.Store("goodbye", "universe")
 
-	// display all items in TtlMap
+	fmt.Printf("ttl.Map length: %d\n", t.Length())
+
+	t.Delete("goodbye")
+
+	// Display all items in ttl.Map
 	t.Range(func(key string, value string) bool {
-		fmt.Printf("[%9s] %v\n", key, value)
+		fmt.Printf("[%7s] '%v'\n", key, value)
 		return true
 	})
 
-	fmt.Println()
-
 	sleepTime := maxTTL + pruneInterval
-	fmt.Printf("Sleeping %v seconds, items should be 'nil' after this time\n", sleepTime)
+	fmt.Printf("Sleeping %s, items should be expired and removed afterward\n", sleepTime)
+
 	time.Sleep(sleepTime)
-	v, ok := t.Load("myString")
-	fmt.Printf("[%9s] %v (exists: %t)\n", "myString", v, ok)
-	v, ok = t.Load("int_array")
-	fmt.Printf("[%9s] %v (exists: %t)\n", "int_array", v, ok)
-	fmt.Println("TtlMap length:", t.Length())
+
+	v, ok := t.Load("hello")
+	fmt.Printf("[%7s] '%v' (exists: %t)\n", "hello", v, ok)
+
+	v, ok = t.Load("goodbye")
+	fmt.Printf("[%7s] '%v' (exists: %t)\n", "goodbye", v, ok)
+
+	fmt.Printf("ttl.Map length: %d\n", t.Length())
 }

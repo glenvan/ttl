@@ -151,14 +151,14 @@ func (m *Map[K, V]) Clear() {
 	clear(m.m)
 }
 
-// Range calls f sequentially for each key and value present in the [Map]. If f returns false, range
+// Range calls f sequentially for each key and value present in the [Map]. If f returns false, Range
 // stops the iteration.
 //
-// Range is safe for concurrent use and supports modifying the value (assuming it's a slice, map,
-// or a struct) within the range function. However, this requires a write lock on the Map – so you
-// are not able to perform [Map.Delete] or [Map.Store] operations on the original [Map] directly
-// within the range func, as that would cause a panic. Even an accessor like [Map.Load] or
-// [Map.LoadPassive] would lock indefinitely.
+// Range is safe for concurrent use and supports modifying the value (assuming it's a reference
+// type like a slice, map, or a pointer) within the range function. However, this requires a write
+// lock on the Map – so you are not able to perform [Map.Delete] or [Map.Store] operations on the
+// original [Map] directly within the range func, as that would cause a panic. Even an accessor
+// like [Map.Load] or [Map.LoadPassive] would lock indefinitely.
 //
 // If you need to perform operations on the original [Map], do so in a new goroutine from within
 // the range func – effectively deferring the operation until the Range completes.

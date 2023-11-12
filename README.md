@@ -56,37 +56,42 @@ import (
 )
 
 func main() {
-	maxTTL := time.Duration(time.Second * 4)        // a key's time to live in seconds
-	startSize := 3                                  // initial number of items in map
-	pruneInterval := time.Duration(time.Second * 1) // search for expired items every 'pruneInterval' seconds
-	refreshLastAccessOnGet := true                  // update item's 'lastAccessTime' on a .Get()
+	maxTTL := 300 * time.Millisecond        // a key's time to live
+	startSize := 3                          // initial number of items in map
+	pruneInterval := 100 * time.Millisecond // prune expired items each time pruneInterval elapses
+	refreshLastAccessOnGet := true          // update item's 'lastAccessTime' on ttl.Map.Load()
 
-	// any comparable data type such as int, uint64, pointers and struct types (if all field types are comparable)
-	// can be used as the key type, not just string
+	// Any comparable data type such as int, uint64, pointers and struct types (if all field
+	// types are comparable) can be used as the key type
 	t := ttl.NewMap[string, string](maxTTL, startSize, pruneInterval, refreshLastAccessOnGet)
 	defer t.Close()
 
-	// populate the TtlMap
-	t.Store("myString", "a b c")
-	t.Store("int_array", "1, 2, 3")
-	fmt.Println("TtlMap length:", t.Length())
+	// Populate the ttl.Map
+	t.Store("hello", "world")
+	t.Store("goodbye", "universe")
 
-	// display all items in TtlMap
+	fmt.Printf("ttl.Map length: %d\n", t.Length())
+
+	t.Delete("goodbye")
+
+	// Display all items in ttl.Map
 	t.Range(func(key string, value string) bool {
-		fmt.Printf("[%9s] %v\n", key, value)
+		fmt.Printf("[%7s] '%v'\n", key, value)
 		return true
 	})
 
-	fmt.Println()
-
 	sleepTime := maxTTL + pruneInterval
-	fmt.Printf("Sleeping %v seconds, items should be 'nil' after this time\n", sleepTime)
+	fmt.Printf("Sleeping %s, items should be expired and removed afterward\n", sleepTime)
+
 	time.Sleep(sleepTime)
-	v, ok := t.Load("myString")
-	fmt.Printf("[%9s] %v (exists: %t)\n", "myString", v, ok)
-	v, ok = t.Load("int_array")
-	fmt.Printf("[%9s] %v (exists: %t)\n", "int_array", v, ok)
-	fmt.Println("TtlMap length:", t.Length())
+
+	v, ok := t.Load("hello")
+	fmt.Printf("[%7s] '%v' (exists: %t)\n", "hello", v, ok)
+
+	v, ok = t.Load("goodbye")
+	fmt.Printf("[%7s] '%v' (exists: %t)\n", "goodbye", v, ok)
+
+	fmt.Printf("ttl.Map length: %d\n", t.Length())
 }
 ```
 
@@ -95,43 +100,130 @@ Output:
 ```bash
 $ go run small.go
 
-TtlMap length: 2
-[ myString] a b c
-[int_array] [1 2 3]
-
-Sleeping 5 seconds, items should be 'nil' after this time
-[ myString] <nil>
-[int_array] <nil>
-TtlMap length: 0
+ttl.Map length: 2
+[  hello] 'world'
+Sleeping 400ms, items should be expired and removed afterward
+[  hello] '' (exists: false)
+[goodbye] '' (exists: false)
+ttl.Map length: 0
 ```
 
-## API functions
+## API
 
-- `New`: initialize a `TtlMap`
-- `Close`: this stops the goroutine that checks for expired items; use with `defer`
-- `Len`: return the number of items in the map
-- `Put`: add a key/value
-- `Get`: get the current value of the given key; return `nil` if the key is not found in the map
-- `GetNoUpdate`: same as `Get`, but do not update the `lastAccess` expiration time
-  - This ignores the `refreshLastAccessOnGet` parameter
-- `All`: returns a *copy* of all items in the map
-- `Delete`: delete an item; return `true` if the item was deleted, `false` if the item was not
-  found in the map
-- `Clear`: remove all items from the map
+```go
+type Map[K comparable, V any] struct {
+	// Has unexported fields.
+}
+```
 
-## Performance
+`Map` is a "time-to-live" map such that after a given amount of time, items in
+the map are deleted. `Map` is safe for concurrent use.
 
-- Searching for expired items runs in O(n) time, where n = number of items in the `TtlMap`.
-  - This inefficiency can be somewhat mitigated by increasing the value of the `pruneInterval` time.
-- In most cases you want `pruneInterval > maxTTL`; otherwise expired items will stay in the map
-  longer than expected.
+When a `Map.Load` or `Map.Store` occurs, the lastAccess time is set to the
+current time. Therefore, only items that are not called by `Map.Load` or
+`Map.Store` will be deleted after the TTL expires.
+
+`Map.LoadPassive` can be used in which case the lastAccess time will *not* be
+updated.
+
+Adapted from:
+[https://stackoverflow.com/a/25487392/452281](https://stackoverflow.com/a/25487392/452281)
+
+```go
+func NewMap[K comparable, V any](
+	maxTTL time.Duration,
+	length int,
+	pruneInterval time.Duration,
+	refreshLastAccessOnGet bool,
+) (m *Map[K, V])
+```
+
+`NewMap` returns a new Map with items expiring according to the maxTTL
+specified if they have not been accessed within that duration. Access
+refresh can be overridden so that items expire after the TTL whether they
+have been accessed or not.
+
+```go
+func (m *Map[K, V]) Clear()
+```
+
+`Clear` will remove all key/value pairs from the `Map`. `Clear` is safe for
+concurrent use.
+
+```go
+func (m *Map[K, V]) Close()
+```
+
+`Close` will terminate TTL pruning of the `Map`. If `Close` is not called on a
+`Map` after its no longer needed, the `Map` will leak.
+
+```go
+func (m *Map[K, V]) Delete(key K)
+```
+
+`Delete` will remove a key and its value from the `Map`. `Delete` is safe for
+concurrent use.
+
+```go
+func (m *Map[K, V]) Length() int
+```
+
+`Length` returns the current length of the `Map`'s internal map. `Length` is safe
+for concurrent use.
+
+```go
+func (m *Map[K, V]) Load(key K) (value V, ok bool)
+```
+
+`Load` will retrieve a value from the `Map`, as well as a bool indicating
+whether the key was found. If the item was not found the value returned is
+undefined. `Load` is safe for concurrent use.
+
+```go
+func (m *Map[K, V]) LoadPassive(key K) (value V, ok bool)
+```
+
+`LoadPassive` will retrieve a value from the `Map` (without updating that
+value's time to live), as well as a bool indicating whether the key
+was found. If the item was not found the value returned is undefined.
+`LoadPassive` is safe for concurrent use.
+
+```go
+func (m *Map[K, V]) Range(f func(key K, value V) bool)
+```
+
+`Range` calls f sequentially for each key and value present in the Map.
+If f returns false, `Range` stops the iteration.
+
+`Range` is safe for concurrent use and supports modifying the value (assuming
+it's a reference type like a slice, map, or a pointer) within the range
+function. However, this requires a write lock on the `Map` – so you are
+not able to perform `Map.Delete` or `Map.Store` operations on the original
+`Map` directly within the range func, as that would cause a panic. Even an
+accessor like `Map.Load` or `Map.LoadPassive` would lock indefinitely.
+
+If you need to perform operations on the original `Map`, do so in a new
+goroutine from within the range func – effectively deferring the operation
+until the `Range` completes.
+
+```go
+func (m *Map[K, V]) Store(key K, value V)
+```
+
+`Store` will insert a value into the Map. `Store` is safe for concurrent use.
 
 ## Acknowledgments
+
+As mentioned, this is a fork of the awesome
+[github.com/jftuga/TtlMap](https://github.com/jftuga/TtlMap) package. All ideas in this derivative
+package flowed from that one.
+
+### Original Package Acknowledgements
 
 - Adopted from: [Map with TTL option in Go](https://stackoverflow.com/a/25487392/452281)
   - Answer created by: [OneOfOne](https://stackoverflow.com/users/145587/oneofone)
 - [/u/skeeto](https://old.reddit.com/user/skeeto): suggestions for the `New` function
-- `@zhayes` on the Go Discord: helping me with Go Generics
+- `@zhayes` on the Go Discord: helping the original author with Go Generics
 
 ## Disclosure Notification
 
