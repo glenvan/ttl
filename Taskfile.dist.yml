@@ -6,7 +6,7 @@ version: '3'
 output: 'prefixed'
 
 vars:
-  PKG_VERSION: v0.1.2
+  PKG_VERSION: v0.1.3
 
 tasks:
   default:
@@ -25,18 +25,21 @@ tasks:
     silent: true
 
   tidy:
+    run: once
     cmds:
       - go mod tidy
     silent: true
 
   pull-tags:
     internal: true
+    run: once
     cmds:
       - git pull --tags
     silent: true
 
   tag:
     deps: [pull-tags]
+    run: once
     cmds:
       - git tag {{.PKG_VERSION}}
       - git push origin {{.PKG_VERSION}}
@@ -45,8 +48,9 @@ tasks:
     silent: true
 
   publish:
-    deps: [tidy, test]
+    deps: [tidy, pull-tags]
     cmds:
+      - task: test
       - task: tag
       - go list -m github.com/glenvan/ttl@{{.PKG_VERSION}}
     env:
