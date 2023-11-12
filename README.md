@@ -1,4 +1,6 @@
-# ttl
+# Go Time-To-Live Containers
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/glenvan/ttl.svg)](https://pkg.go.dev/github.com/glenvan/ttl)
 
 ## Status
 
